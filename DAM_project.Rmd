@@ -1,0 +1,165 @@
+```{r}
+library(randomForest)
+library(caret)
+library(tidyverse)
+library(corrgram)
+library(GGally)
+data <- read.csv('KAG_conversion_data.csv', header=TRUE)
+str(data)
+```
+```{r}
+ggpairs(data %>% select (interest, Impressions, Clicks, Total_Conversion, Approved_Conversion))
+```
+```{r}
+# random tree forest model
+# split the data into 70-30
+
+set.seed(123)
+train_idx <- sample(nrow(data), .70*nrow(data))
+
+data_train <- data[train_idx,]
+data_test <- data[-train_idx,]
+
+str(data_train)
+str(data_test)
+```
+# **Random Forest**
+
+```{r}
+# random tree forest model
+set.seed(222)
+rf <- randomForest(Approved_Conversion ~ ., data = data_train)
+print(rf)
+```
+```{r}
+predict00 <- predict(rf, data_train)
+RMSE(predict00, data_train$Approved_Conversion/mean(data_train$Approved_Conversion))
+prediction01 <- predict(rf, data_test)
+RMSE(prediction01, data_test$Approved_Conversion/mean(data_test$Approved_Conversion))
+
+```
+**Tuning the Model**
+
+Keeping only age, gender, interest, Clicks, Spent & Total Conversion variables and getting rid of others.
+
+```{r}
+data_train <- data_train%>%
+        select(age, gender, Spent, Clicks, Approved_Conversion)
+data_test <- data_test %>%
+  select(age, gender, Spent, Clicks, Approved_Conversion)
+head(data_train)
+head(data_test)
+```
+
+```{r}
+rf_model1 <- randomForest(Approved_Conversion ~ ., data = data_train)
+
+print(rf_model1)
+
+```
+```{r}
+prediction0 <- predict(rf_model1, data_train)
+RMSE(prediction0, data_train$Approved_Conversion/mean(data_train$Approved_Conversion))
+
+```
+```{r}
+prediction <- predict(rf_model1, data_test)
+
+RMSE(prediction, data_test$Approved_Conversion/mean(data_test$Approved_Conversion))
+```
+
+We can further check if we can predict the possibility of Approved Conversion by converting the data to factor and generating the model again.
+
+```{r}
+data$Approved_Conversion[data$Approved_Conversion == 0] <- 0
+data$Approved_Conversion[data$Approved_Conversion > 0] <- 1
+
+data$Approved_Conversion <- as.factor(data$Approved_Conversion)
+glimpse(data)
+
+```
+Split the data into test and train sets at ratio 70/30
+
+```{r}
+set.seed(123)
+index <- sample(nrow(data), 0.70*nrow(data))
+train <- data[index, ]
+test <- data[-index, ]
+
+str(train)
+str(test)
+```
+Again, make a random forest model.
+
+```{r}
+set.seed(1234)
+rfmodel3 <- randomForest(Approved_Conversion ~ age+gender+interest+Impressions+Clicks+Spent+Total_Conversion, train)
+print(rfmodel3)
+```
+```{r}
+print(rfmodel3$confusion)
+
+```
+We will check the accuracy by predicting the train and test data sets.
+
+```{r}
+library(e1071)
+set.seed(1234)
+p1 <- predict(rfmodel3, train)
+confusionMatrix(p1, train$Approved_Conversion)
+```
+Since we used training data to for prediction, we can see that the accuracy is quite high.
+We can now check similarly using test data.
+
+```{r}
+set.seed(1234)
+p2 <- predict(rfmodel3, test)
+confusionMatrix(p2, test$Approved_Conversion)
+```
+We can plot the model
+```{r}
+plot(rfmodel3)
+```
+
+The error tends to decrease as the number of trees increase.
+
+## **Tuning the model**
+
+```{r}
+set.seed(1234)
+t <- tuneRF(train[, 4:10], train[, 'Approved_Conversion'], stepFactor=0.6, plot=TRUE, ntreeTry=2500, trace=TRUE, improve=20)
+```
+
+As shown in the plot, mtry value of 1 and ntree value of 2500 will give the least error. We will tune model according this data.
+
+```{r}
+set.seed(128)
+rfmodel4 <- randomForest(Approved_Conversion ~ age+gender+interest+Impressions+Clicks+Spent+Total_Conversion, train, mtry = 1, ntree=2500, importance = TRUE, proximity = TRUE)
+print(rfmodel4)
+```
+
+OOB error has come down to 33% from around 40%, after tuning the model.
+
+```{r}
+p3<- predict(rfmodel4, train)
+confusionMatrix(p3, train$Approved_Conversion)
+```
+```{r}
+p4<- predict(rfmodel4, test)
+confusionMatrix(p4, test$Approved_Conversion)
+```
+After tuning the model and predicting the test data we can see that the accuracy of the model has further improved. Values for attributes such as Sensitivity and Specificity have also improved.
+
+```{r}
+hist(treesize(rfmodel4), main='No. of nodes for Trees', col = 'pink')
+```
+
+We can see from the histogram, on an average there are >300 nodes per tree
+
+```{r}
+varImpPlot(rfmodel4, main='Variable Importance')
+```
+
+
+Plot shows how worse the model will perform without each variable. Simply put, we can say that Total_Conversion has maximum importance in predicting Approved_Conversion. Contribution of interest is very low.
+
